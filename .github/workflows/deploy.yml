@@ -1,0 +1,54 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Home Assistant public URL (https://ha.example.com)
+        required: true
+      skill_id:
+        description: Alexa Skill ID (leave empty on first deploy)
+        required: false
+        default: ""
+      mtls_secret_arn:
+        description: Existing Secrets Manager ARN for mTLS cert (optional)
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Package Lambda
+        working-directory: lambda
+        run: |
+          python -m pip install -r requirements.txt -t .
+          zip -r ../lambda.zip . -x 'requirements.txt'
+
+      - name: Upload artifact
+        run: aws s3 cp lambda.zip s3://${{ secrets.ARTIFACT_BUCKET }}/alexa-ha/lambda.zip
+
+      - name: CloudFormation deploy
+        run: |
+          aws cloudformation deploy \
+            --template-file cfn/template.yaml \
+            --stack-name alexa-ha-smarthome \
+            --region ${{ vars.AWS_REGION || 'us-east-1' }} \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              BaseUrl=${{ inputs.base_url }} \
+              AlexaSkillId=${{ inputs.skill_id }} \
+              MtlsSecretArn=${{ inputs.mtls_secret_arn }} \
+              CodeS3Bucket=${{ secrets.ARTIFACT_BUCKET }} \
+              CodeS3Key=alexa-ha/lambda.zip
