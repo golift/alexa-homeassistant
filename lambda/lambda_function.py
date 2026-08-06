@@ -14,6 +14,7 @@ import logging
 import os
 import ssl
 import tempfile
+import uuid
 import urllib3
 
 import boto3
@@ -26,9 +27,29 @@ _mtls_paths = {}
 _http = None
 
 
-def _error(err_type, message):
-    """Build an Alexa Smart Home ErrorResponse payload."""
-    return {"event": {"payload": {"type": err_type, "message": message}}}
+def _error(err_type, message, directive=None):
+    """Build a well-formed Alexa Smart Home ErrorResponse.
+
+    Alexa requires event.header (namespace/name/payloadVersion/messageId) or it
+    treats the response as malformed. correlationToken and endpointId are
+    echoed from the directive when present so Alexa can match the error to
+    its request.
+    """
+    header = {
+        "namespace": "Alexa",
+        "name": "ErrorResponse",
+        "payloadVersion": "3",
+        "messageId": str(uuid.uuid4()),
+    }
+    event = {"header": header, "payload": {"type": err_type, "message": message}}
+    if directive:
+        correlation_token = directive.get("header", {}).get("correlationToken")
+        if correlation_token:
+            header["correlationToken"] = correlation_token
+        endpoint_id = directive.get("endpoint", {}).get("endpointId")
+        if endpoint_id:
+            event["endpoint"] = {"endpointId": endpoint_id}
+    return {"event": event}
 
 
 def _redact(obj):
@@ -96,7 +117,7 @@ def lambda_handler(event, context):
     if directive is None:
         return _error("INVALID_DIRECTIVE", "Malformatted request - missing directive.")
     if directive.get("header", {}).get("payloadVersion") != "3":
-        return _error("INVALID_DIRECTIVE", "Only payloadVersion 3 is supported.")
+        return _error("INVALID_DIRECTIVE", "Only payloadVersion 3 is supported.", directive)
 
     scope = directive.get("endpoint", {}).get("scope")
     if scope is None:
@@ -106,9 +127,9 @@ def lambda_handler(event, context):
         # Discovery directive carries it in payload.scope
         scope = directive.get("payload", {}).get("scope")
     if scope is None:
-        return _error("INVALID_DIRECTIVE", "Malformatted request - missing endpoint.scope.")
+        return _error("INVALID_DIRECTIVE", "Malformatted request - missing endpoint.scope.", directive)
     if scope.get("type") != "BearerToken":
-        return _error("INVALID_DIRECTIVE", "Only BearerToken scope is supported.")
+        return _error("INVALID_DIRECTIVE", "Only BearerToken scope is supported.", directive)
 
     token = scope.get("token")
     if token is None and os.environ.get("DEBUG") == "True":
@@ -116,7 +137,9 @@ def lambda_handler(event, context):
         token = os.environ.get("LONG_LIVED_ACCESS_TOKEN")
     if token is None:
         _logger.error("Directive contains no bearer token; is account linking set up?")
-        return _error("INVALID_AUTHORIZATION_CREDENTIAL", "No bearer token in directive.")
+        return _error(
+            "INVALID_AUTHORIZATION_CREDENTIAL", "No bearer token in directive.", directive
+        )
 
     response = _http_manager().request(
         "POST",
@@ -129,12 +152,19 @@ def lambda_handler(event, context):
     )
 
     if response.status >= 400:
+        # Log the body for debugging, but never return it to Alexa: it can be
+        # HTML or leak internal details.
         _logger.error("HA error %s: %s", response.status, response.data.decode("utf-8"))
+        if response.status in (401, 403):
+            return _error(
+                "INVALID_AUTHORIZATION_CREDENTIAL",
+                "Home Assistant rejected the access token.",
+                directive,
+            )
         return _error(
-            "INVALID_AUTHORIZATION_CREDENTIAL"
-            if response.status in (401, 403)
-            else "INTERNAL_ERROR",
-            response.data.decode("utf-8"),
+            "INTERNAL_ERROR",
+            "Home Assistant returned HTTP {}.".format(response.status),
+            directive,
         )
 
     _logger.debug("Response: %s", response.data.decode("utf-8"))

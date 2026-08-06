@@ -92,6 +92,21 @@ Parameters:
     NoEcho: true
     Description: "PEM client private key (only when CreateMtlsSecret=true)."
 
+Rules:
+  # CreateMtlsSecret=true without PEM material would create an empty secret
+  # and break the TLS handshake at runtime; fail at deploy time instead.
+  InlinePemRequired:
+    RuleCondition: !And
+      - !Equals [!Ref CreateMtlsSecret, "true"]
+      - !Equals [!Ref MtlsSecretArn, ""]
+    Assertions:
+      - Assert: !And
+          - !Not [!Equals [!Ref ClientCrt, ""]]
+          - !Not [!Equals [!Ref ClientKey, ""]]
+        AssertDescription: >-
+          CreateMtlsSecret=true requires both ClientCrt and ClientKey
+          (or pass an existing MtlsSecretArn instead).
+
 Conditions:
   HasSkillId: !Not [!Equals [!Ref AlexaSkillId, ""]]
   HasMtlsSecret: !Not [!Equals [!Ref MtlsSecretArn, ""]]
