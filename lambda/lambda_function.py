@@ -86,6 +86,16 @@ def lambda_handler(event, context):
     if token is None and os.environ.get("DEBUG") == "True":
         # Only for local testing; do not rely on this in production.
         token = os.environ.get("LONG_LIVED_ACCESS_TOKEN")
+    if token is None:
+        _logger.error("Directive contains no bearer token; is account linking set up?")
+        return {
+            "event": {
+                "payload": {
+                    "type": "INVALID_AUTHORIZATION_CREDENTIAL",
+                    "message": "No bearer token in directive.",
+                }
+            }
+        }
 
     response = _http_manager().request(
         "POST",

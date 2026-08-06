@@ -72,7 +72,7 @@ aws cloudformation deploy \
   --template-file cfn/template.yaml \
   --stack-name alexa-ha-smarthome \
   --region us-east-1 \
-  --capabilities CAPABILITY_NAMED_IAM \
+  --capabilities CAPABILITY_IAM \
   --parameter-overrides \
     BaseUrl=https://ha.example.com \
     AlexaSkillId=amzn1.ask.skill.xxxxxxxx \

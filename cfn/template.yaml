@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::LanguageExtensions
 Description: >-
   Alexa Smart Home → Home Assistant over HTTPS, with optional mTLS at your
   reverse proxy (nginx). Lambda proxies Alexa directives to
@@ -104,17 +105,20 @@ Resources:
     Type: AWS::SecretsManager::Secret
     Condition: ShouldCreateSecret
     Properties:
-      Name: alexa-ha-mtls-client
+      # Derived from the stack name: a fixed name breaks re-deploys (deleted
+      # secrets hold their name for the recovery window) and parallel stacks.
+      Name: !Sub "${AWS::StackName}-mtls-client"
       Description: mTLS client certificate/key for Alexa Lambda → Home Assistant
-      SecretString: !Sub
-        - '{"client_crt": "${Crt}", "client_key": "${Key}"}'
-        - Crt: !Ref ClientCrt
-          Key: !Ref ClientKey
+      # ToJsonString handles PEM newlines; a plain !Sub would emit broken JSON.
+      SecretString: !ToJsonString
+        client_crt: !Ref ClientCrt
+        client_key: !Ref ClientKey
 
   LambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: alexa-ha-smarthome-lambda
+      # No RoleName: let CloudFormation generate one so re-deploys and
+      # parallel stacks don't collide on a fixed role name.
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:

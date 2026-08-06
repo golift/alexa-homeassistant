@@ -30,6 +30,10 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"  # match the Lambda runtime in cfn/template.yaml
+
       - name: Package Lambda
         working-directory: lambda
         run: |
@@ -45,7 +49,7 @@ jobs:
             --template-file cfn/template.yaml \
             --stack-name alexa-ha-smarthome \
             --region ${{ vars.AWS_REGION || 'us-east-1' }} \
-            --capabilities CAPABILITY_NAMED_IAM \
+            --capabilities CAPABILITY_IAM \
             --parameter-overrides \
               BaseUrl=${{ inputs.base_url }} \
               AlexaSkillId=${{ inputs.skill_id }} \
