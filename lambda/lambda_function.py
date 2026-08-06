@@ -105,11 +105,16 @@ def _ssl_ctx():
     """SSL context cached per container (includes client cert when mTLS is on)."""
     global _ssl_context
     if _ssl_context is None:
-        ctx = ssl.create_default_context()
-        cert_file, key_file = _mtls_cert_paths()
-        if cert_file and key_file:
-            ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
-        _ssl_context = ctx
+        try:
+            ctx = ssl.create_default_context()
+            cert_file, key_file = _mtls_cert_paths()
+            if cert_file and key_file:
+                ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+            _ssl_context = ctx
+        except Exception as exc:
+            # SSM access denied, bad JSON, missing keys, corrupt PEM, etc.
+            # Re-raise as OSError so lambda_handler returns INTERNAL_ERROR.
+            raise OSError("Failed to load mTLS client certificate: {}".format(exc)) from exc
     return _ssl_context
 
 
@@ -201,7 +206,7 @@ def lambda_handler(event, context):
         )
 
     text = _safe_text(body, limit=10000)
-    _logger.debug("Response: %s", _safe_text(text))
+    _logger.debug("Response: %s", text)
     try:
         return json.loads(text)
     except json.JSONDecodeError:

@@ -65,12 +65,17 @@ Parameters:
   MtlsParamName:
     Type: String
     Default: ""
+    AllowedPattern: "^$|^/.+"
+    ConstraintDescription: >-
+      Must be empty (no mTLS) or start with a leading slash, e.g.
+      /alexa-ha-smarthome/mtls-client. The leading slash is required for the
+      IAM resource ARN (parameter${Name}) to resolve correctly.
     Description: >-
       Optional. Name of an existing SSM SecureString parameter containing JSON:
       {"client_crt": "PEM...", "client_key": "PEM..."}. Create it with
       `aws ssm put-parameter --type SecureString` (see docs/alexa-setup.md).
       CloudFormation cannot create SecureString parameters, so this must
-      exist beforehand. Standard tier (4KB) is free.
+      exist beforehand. Standard tier (4KB) is free. Must start with /.
 
 Conditions:
   HasSkillId: !Not [!Equals [!Ref AlexaSkillId, ""]]
