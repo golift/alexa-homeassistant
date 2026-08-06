@@ -23,6 +23,21 @@ _logger.setLevel(logging.DEBUG if os.environ.get("DEBUG") == "True" else logging
 
 _secrets = boto3.client("secretsmanager")
 _mtls_paths = {}
+_http = None
+
+
+def _error(err_type, message):
+    """Build an Alexa Smart Home ErrorResponse payload."""
+    return {"event": {"payload": {"type": err_type, "message": message}}}
+
+
+def _redact(obj):
+    """Deep-copy obj with bearer token values masked, safe for logging."""
+    if isinstance(obj, dict):
+        return {k: "***" if k == "token" else _redact(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    return obj
 
 
 def _mtls_cert_paths():
@@ -34,6 +49,10 @@ def _mtls_cert_paths():
         return _mtls_paths["cert"], _mtls_paths["key"]
 
     payload = json.loads(_secrets.get_secret_value(SecretId=secret_id)["SecretString"])
+    if "client_crt" not in payload or "client_key" not in payload:
+        raise ValueError(
+            "Secret {} must be JSON with client_crt and client_key keys".format(secret_id)
+        )
     cert = tempfile.NamedTemporaryFile(mode="w", suffix=".crt", delete=False, dir="/tmp")
     key = tempfile.NamedTemporaryFile(mode="w", suffix=".key", delete=False, dir="/tmp")
     cert.write(payload["client_crt"].replace("\\n", "\n"))
@@ -47,30 +66,37 @@ def _mtls_cert_paths():
 
 
 def _http_manager():
-    cert_file, key_file = _mtls_cert_paths()
-    kwargs = {
-        "ca_certs": ssl.get_default_verify_paths().cafile,
-        "cert_reqs": "CERT_REQUIRED",
-        "timeout": urllib3.Timeout(connect=2.0, read=10.0),
-    }
-    if cert_file and key_file:
-        kwargs["cert_file"] = cert_file
-        kwargs["key_file"] = key_file
-    return urllib3.PoolManager(**kwargs)
+    """PoolManager cached per container so warm invocations reuse connections."""
+    global _http
+    if _http is None:
+        cert_file, key_file = _mtls_cert_paths()
+        kwargs = {
+            "ca_certs": ssl.get_default_verify_paths().cafile,
+            "cert_reqs": "CERT_REQUIRED",
+            "timeout": urllib3.Timeout(connect=2.0, read=10.0),
+        }
+        if cert_file and key_file:
+            kwargs["cert_file"] = cert_file
+            kwargs["key_file"] = key_file
+        _http = urllib3.PoolManager(**kwargs)
+    return _http
 
 
 def lambda_handler(event, context):
     """Handle an incoming Alexa Smart Home directive."""
 
-    _logger.debug("Event: %s", event)
+    _logger.debug("Event: %s", json.dumps(_redact(event)))
 
     base_url = os.environ.get("BASE_URL")
-    assert base_url is not None, "Set BASE_URL environment variable (no trailing slash)"
+    if not base_url:
+        raise ValueError("Set the BASE_URL environment variable (no trailing slash)")
     base_url = base_url.strip("/")
 
     directive = event.get("directive")
-    assert directive is not None, "Malformatted request - missing directive"
-    assert directive.get("header", {}).get("payloadVersion") == "3", "Only payloadVersion == 3"
+    if directive is None:
+        return _error("INVALID_DIRECTIVE", "Malformatted request - missing directive.")
+    if directive.get("header", {}).get("payloadVersion") != "3":
+        return _error("INVALID_DIRECTIVE", "Only payloadVersion 3 is supported.")
 
     scope = directive.get("endpoint", {}).get("scope")
     if scope is None:
@@ -79,8 +105,10 @@ def lambda_handler(event, context):
     if scope is None:
         # Discovery directive carries it in payload.scope
         scope = directive.get("payload", {}).get("scope")
-    assert scope is not None, "Malformatted request - missing endpoint.scope"
-    assert scope.get("type") == "BearerToken", "Only BearerToken is supported"
+    if scope is None:
+        return _error("INVALID_DIRECTIVE", "Malformatted request - missing endpoint.scope.")
+    if scope.get("type") != "BearerToken":
+        return _error("INVALID_DIRECTIVE", "Only BearerToken scope is supported.")
 
     token = scope.get("token")
     if token is None and os.environ.get("DEBUG") == "True":
@@ -88,14 +116,7 @@ def lambda_handler(event, context):
         token = os.environ.get("LONG_LIVED_ACCESS_TOKEN")
     if token is None:
         _logger.error("Directive contains no bearer token; is account linking set up?")
-        return {
-            "event": {
-                "payload": {
-                    "type": "INVALID_AUTHORIZATION_CREDENTIAL",
-                    "message": "No bearer token in directive.",
-                }
-            }
-        }
+        return _error("INVALID_AUTHORIZATION_CREDENTIAL", "No bearer token in directive.")
 
     response = _http_manager().request(
         "POST",
@@ -109,16 +130,12 @@ def lambda_handler(event, context):
 
     if response.status >= 400:
         _logger.error("HA error %s: %s", response.status, response.data.decode("utf-8"))
-        return {
-            "event": {
-                "payload": {
-                    "type": "INVALID_AUTHORIZATION_CREDENTIAL"
-                    if response.status in (401, 403)
-                    else "INTERNAL_ERROR",
-                    "message": response.data.decode("utf-8"),
-                }
-            }
-        }
+        return _error(
+            "INVALID_AUTHORIZATION_CREDENTIAL"
+            if response.status in (401, 403)
+            else "INTERNAL_ERROR",
+            response.data.decode("utf-8"),
+        )
 
     _logger.debug("Response: %s", response.data.decode("utf-8"))
     return json.loads(response.data.decode("utf-8"))

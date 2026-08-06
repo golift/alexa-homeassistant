@@ -147,7 +147,8 @@ Resources:
   SmartHomeFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: alexa-ha-smarthome
+      # No FunctionName: CloudFormation derives one from the stack name, so
+      # multiple stacks in one account/region don't collide.
       Description: Alexa Smart Home → Home Assistant (optional mTLS)
       Runtime: python3.13
       Architectures:

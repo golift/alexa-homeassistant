@@ -63,7 +63,7 @@ Package and upload the Lambda zip (or use GitHub Actions → `deploy`):
 
 ```bash
 cd lambda && pip install -r requirements.txt -t . \
-  && zip -r ../lambda.zip . && cd ..
+  && zip -r ../lambda.zip . -x 'requirements.txt' '*__pycache__*' '*.pyc' && cd ..
 
 aws s3 mb s3://YOUR-artifacts-bucket --region us-east-1   # once
 aws s3 cp lambda.zip s3://YOUR-artifacts-bucket/alexa-ha/lambda.zip
