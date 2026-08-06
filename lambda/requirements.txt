@@ -1,0 +1,2 @@
+# Intentionally empty: boto3 is provided by the Lambda runtime, and HTTP uses
+# the stdlib (urllib.request + ssl). This file is kept so packaging stays stable.

@@ -1,0 +1,61 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Home Assistant public URL (https://ha.example.com)
+        required: true
+      skill_id:
+        description: Alexa Skill ID (leave empty on first deploy)
+        required: false
+        default: ""
+      mtls_param_name:
+        description: Existing SSM parameter name for mTLS cert (optional)
+        required: false
+        default: ""
+      log_retention_days:
+        description: CloudWatch log retention in days
+        required: false
+        default: "90"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"  # match the Lambda runtime in cfn/template.yaml
+
+      - name: Package Lambda
+        working-directory: lambda
+        run: zip -r ../lambda.zip . -x 'requirements.txt' '*__pycache__*' '*.pyc'
+
+      - name: Upload artifact
+        run: aws s3 cp lambda.zip s3://${{ secrets.ARTIFACT_BUCKET }}/alexa-ha/lambda.zip
+
+      - name: CloudFormation deploy
+        run: |
+          aws cloudformation deploy \
+            --template-file cfn/template.yaml \
+            --stack-name alexa-ha-smarthome \
+            --region ${{ vars.AWS_REGION || 'us-east-1' }} \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides \
+              BaseUrl=${{ inputs.base_url }} \
+              AlexaSkillId=${{ inputs.skill_id }} \
+              LogRetentionDays=${{ inputs.log_retention_days }} \
+              MtlsParamName=${{ inputs.mtls_param_name }} \
+              CodeS3Bucket=${{ secrets.ARTIFACT_BUCKET }} \
+              CodeS3Key=alexa-ha/lambda.zip

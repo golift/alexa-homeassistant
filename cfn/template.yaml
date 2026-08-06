@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Alexa Smart Home → Home Assistant over HTTPS, with optional mTLS at your
+  reverse proxy (nginx). Lambda proxies Alexa directives to
+  {BaseUrl}/api/alexa/smart_home. Deploy in the region your Alexa skill
+  requires (us-east-1 for North America).
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Alexa / Home Assistant"
+        Parameters:
+          - BaseUrl
+          - AlexaSkillId
+          - LogRetentionDays
+      - Label:
+          default: "Lambda code (S3)"
+        Parameters:
+          - CodeS3Bucket
+          - CodeS3Key
+      - Label:
+          default: "mTLS (optional)"
+        Parameters:
+          - MtlsParamName
+    ParameterLabels:
+      BaseUrl:
+        default: "Home Assistant public URL"
+      AlexaSkillId:
+        default: "Alexa Skill ID"
+      LogRetentionDays:
+        default: "CloudWatch log retention"
+      MtlsParamName:
+        default: "SSM SecureString parameter name"
+
+Parameters:
+  BaseUrl:
+    Type: String
+    Description: >-
+      Public HTTPS URL of Home Assistant, no trailing slash. Example:
+      https://ha.example.com
+    AllowedPattern: ^https://[^/]+$
+    ConstraintDescription: Must start with https:// and not contain a path.
+
+  AlexaSkillId:
+    Type: String
+    Default: ""
+    Description: >-
+      amzn1.ask.skill.xxxxxxxx from the Alexa Developer Console. Leave empty on
+      first deploy (skill not created yet); redeploy with the ID later to lock
+      the Lambda permission to your skill only.
+
+  CodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the packaged Lambda zip.
+  CodeS3Key:
+    Type: String
+    Description: S3 key of the packaged Lambda zip.
+
+  LogRetentionDays:
+    Type: Number
+    Default: 90
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    ConstraintDescription: Must be a CloudWatch Logs RetentionInDays value.
+    Description: Days to keep Lambda logs in CloudWatch before expiry.
+
+  MtlsParamName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^/.+"
+    ConstraintDescription: >-
+      Must be empty (no mTLS) or start with a leading slash, e.g.
+      /alexa-ha-smarthome/mtls-client. The leading slash is required for the
+      IAM resource ARN (parameter${Name}) to resolve correctly.
+    Description: >-
+      Optional. Name of an existing SSM SecureString parameter containing JSON:
+      {"client_crt": "PEM...", "client_key": "PEM..."}. Create it with
+      `aws ssm put-parameter --type SecureString` (see docs/alexa-setup.md).
+      CloudFormation cannot create SecureString parameters, so this must
+      exist beforehand. Standard tier (4KB) is free. Must start with /.
+
+Conditions:
+  HasSkillId: !Not [!Equals [!Ref AlexaSkillId, ""]]
+  UseMtls: !Not [!Equals [!Ref MtlsParamName, ""]]
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      # No RoleName: let CloudFormation generate one so re-deploys and
+      # parallel stacks don't collide on a fixed role name.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  ParamReadPolicy:
+    Type: AWS::IAM::Policy
+    Condition: UseMtls
+    Properties:
+      PolicyName: read-mtls-param
+      Roles:
+        - !Ref LambdaRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+            # Name must include a leading slash (e.g. /alexa-ha/mtls-client)
+            # so the ARN becomes ...:parameter/alexa-ha/mtls-client.
+            Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MtlsParamName}"
+          # Default aws/ssm KMS key: no extra kms:Decrypt needed.
+
+  SmartHomeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      # No FunctionName: CloudFormation derives one from the stack name, so
+      # multiple stacks in one account/region don't collide.
+      Description: Alexa Smart Home → Home Assistant (optional mTLS)
+      Runtime: python3.13
+      Architectures:
+        - arm64
+      Handler: lambda_function.lambda_handler
+      Timeout: 30
+      MemorySize: 128
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      Role: !GetAtt LambdaRole.Arn
+      Environment:
+        Variables: !If
+          - UseMtls
+          - BASE_URL: !Ref BaseUrl
+            MTLS_CERT_PARAM: !Ref MtlsParamName
+          - BASE_URL: !Ref BaseUrl
+
+  # Created after the function so LogGroupName can !Ref it without a cycle.
+  SmartHomeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${SmartHomeFunction}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  AlexaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SmartHomeFunction
+      Action: lambda:InvokeFunction
+      Principal: alexa-connectedhome.amazon.com
+      EventSourceToken: !If [HasSkillId, !Ref AlexaSkillId, !Ref AWS::NoValue]
+
+Outputs:
+  LambdaArn:
+    Description: Paste into Alexa Developer Console → Smart Home endpoint
+    Value: !GetAtt SmartHomeFunction.Arn
+  FunctionName:
+    Value: !Ref SmartHomeFunction
+  MtlsParamNameOut:
+    Condition: UseMtls
+    Value: !Ref MtlsParamName

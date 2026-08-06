@@ -1,0 +1,26 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lambda-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"  # match the Lambda runtime in cfn/template.yaml
+
+      - name: Package
+        working-directory: lambda
+        run: zip -r ../lambda.zip . -x 'requirements.txt' '*__pycache__*' '*.pyc'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lambda-zip
+          path: lambda.zip
