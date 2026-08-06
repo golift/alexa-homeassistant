@@ -1,9 +1,10 @@
 """
 Alexa Smart Home skill Lambda — proxies directives to Home Assistant.
 
-Optional mutual TLS (mTLS): when MTLS_CERT_SECRET is set, a client certificate
-and key are loaded from AWS Secrets Manager (JSON {"client_crt": "...", "client_key": "..."}),
-written to /tmp once per container, and presented to your reverse proxy (e.g. nginx).
+Optional mutual TLS (mTLS): when MTLS_CERT_PARAM is set, a client certificate
+and key are loaded from an SSM SecureString parameter (JSON
+{"client_crt": "...", "client_key": "..."}), written to /tmp once per container,
+and presented to your reverse proxy (e.g. nginx).
 
 Original pattern: https://github.com/mike-grant/haaska / alexa.smart_home docs.
 mTLS adaptation for nginx (no Envoy required).
@@ -15,14 +16,14 @@ import os
 import ssl
 import tempfile
 import uuid
-import urllib3
 
 import boto3
+from botocore.vendored.requests.packages import urllib3
 
 _logger = logging.getLogger("HomeAssistant-SmartHome")
 _logger.setLevel(logging.DEBUG if os.environ.get("DEBUG") == "True" else logging.INFO)
 
-_secrets = boto3.client("secretsmanager")
+_ssm = boto3.client("ssm")
 _mtls_paths = {}
 _http = None
 
@@ -63,16 +64,18 @@ def _redact(obj):
 
 def _mtls_cert_paths():
     """Return (cert_file, key_file) or (None, None) if mTLS is not configured."""
-    secret_id = os.environ.get("MTLS_CERT_SECRET")
-    if not secret_id:
+    param_name = os.environ.get("MTLS_CERT_PARAM")
+    if not param_name:
         return None, None
     if _mtls_paths:
         return _mtls_paths["cert"], _mtls_paths["key"]
 
-    payload = json.loads(_secrets.get_secret_value(SecretId=secret_id)["SecretString"])
+    payload = json.loads(
+        _ssm.get_parameter(Name=param_name, WithDecryption=True)["Parameter"]["Value"]
+    )
     if "client_crt" not in payload or "client_key" not in payload:
         raise ValueError(
-            "Secret {} must be JSON with client_crt and client_key keys".format(secret_id)
+            "Parameter {} must be JSON with client_crt and client_key keys".format(param_name)
         )
     cert = tempfile.NamedTemporaryFile(mode="w", suffix=".crt", delete=False, dir="/tmp")
     key = tempfile.NamedTemporaryFile(mode="w", suffix=".key", delete=False, dir="/tmp")
@@ -82,7 +85,7 @@ def _mtls_cert_paths():
     key.close()
     os.chmod(key.name, 0o600)
     _mtls_paths.update({"cert": cert.name, "key": key.name})
-    _logger.info("Loaded mTLS client cert from Secrets Manager: %s", secret_id)
+    _logger.info("Loaded mTLS client cert from SSM parameter: %s", param_name)
     return cert.name, key.name
 
 

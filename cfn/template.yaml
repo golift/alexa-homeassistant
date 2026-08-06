@@ -14,6 +14,7 @@ Metadata:
         Parameters:
           - BaseUrl
           - AlexaSkillId
+          - LogRetentionDays
       - Label:
           default: "Lambda code (S3)"
         Parameters:
@@ -22,8 +23,8 @@ Metadata:
       - Label:
           default: "mTLS (optional)"
         Parameters:
-          - MtlsSecretArn
-          - CreateMtlsSecret
+          - MtlsParamName
+          - CreateMtlsParam
           - ClientCrt
           - ClientKey
     ParameterLabels:
@@ -31,10 +32,12 @@ Metadata:
         default: "Home Assistant public URL"
       AlexaSkillId:
         default: "Alexa Skill ID"
-      MtlsSecretArn:
-        default: "Existing Secrets Manager ARN"
-      CreateMtlsSecret:
-        default: "Create secret from inline PEM?"
+      LogRetentionDays:
+        default: "CloudWatch log retention"
+      MtlsParamName:
+        default: "Existing SSM parameter name"
+      CreateMtlsParam:
+        default: "Create param from inline PEM?"
       ClientCrt:
         default: "Client certificate PEM"
       ClientKey:
@@ -64,68 +67,76 @@ Parameters:
     Type: String
     Description: S3 key of the packaged Lambda zip.
 
-  MtlsSecretArn:
+  LogRetentionDays:
+    Type: Number
+    Default: 90
+    Description: Days to keep Lambda logs in CloudWatch before expiry.
+
+  MtlsParamName:
     Type: String
     Default: ""
     Description: >-
-      Optional. ARN of an existing Secrets Manager secret containing JSON:
-      {"client_crt": "PEM...", "client_key": "PEM..."}. Overrides CreateMtlsSecret.
+      Optional. Name of an existing SSM SecureString parameter containing JSON:
+      {"client_crt": "PEM...", "client_key": "PEM..."}. Overrides CreateMtlsParam.
+      Standard tier (4KB) is free and holds a typical client cert+key.
 
-  CreateMtlsSecret:
+  CreateMtlsParam:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: >-
-      If true, create a Secrets Manager secret from ClientCrt/ClientKey
-      parameters below. Prefer CLI upload (docs/alexa-setup.md) so keys are
-      not stored in CloudFormation parameters.
+      If true, create the SSM parameter from ClientCrt/ClientKey below. Prefer
+      CLI upload (docs/alexa-setup.md) so keys are not stored in CloudFormation
+      parameters.
 
   ClientCrt:
     Type: String
     Default: ""
     NoEcho: true
-    Description: "PEM client certificate (only when CreateMtlsSecret=true)."
+    Description: "PEM client certificate (only when CreateMtlsParam=true)."
 
   ClientKey:
     Type: String
     Default: ""
     NoEcho: true
-    Description: "PEM client private key (only when CreateMtlsSecret=true)."
+    Description: "PEM client private key (only when CreateMtlsParam=true)."
 
 Rules:
-  # CreateMtlsSecret=true without PEM material would create an empty secret
+  # CreateMtlsParam=true without PEM material would create an empty parameter
   # and break the TLS handshake at runtime; fail at deploy time instead.
   InlinePemRequired:
     RuleCondition: !And
-      - !Equals [!Ref CreateMtlsSecret, "true"]
-      - !Equals [!Ref MtlsSecretArn, ""]
+      - !Equals [!Ref CreateMtlsParam, "true"]
+      - !Equals [!Ref MtlsParamName, ""]
     Assertions:
       - Assert: !And
           - !Not [!Equals [!Ref ClientCrt, ""]]
           - !Not [!Equals [!Ref ClientKey, ""]]
         AssertDescription: >-
-          CreateMtlsSecret=true requires both ClientCrt and ClientKey
-          (or pass an existing MtlsSecretArn instead).
+          CreateMtlsParam=true requires both ClientCrt and ClientKey
+          (or pass an existing MtlsParamName instead).
 
 Conditions:
   HasSkillId: !Not [!Equals [!Ref AlexaSkillId, ""]]
-  HasMtlsSecret: !Not [!Equals [!Ref MtlsSecretArn, ""]]
-  ShouldCreateSecret: !And
-    - !Equals [!Ref CreateMtlsSecret, "true"]
-    - !Not [!Condition HasMtlsSecret]
-  UseMtls: !Or [!Condition HasMtlsSecret, !Condition ShouldCreateSecret]
+  HasMtlsParam: !Not [!Equals [!Ref MtlsParamName, ""]]
+  ShouldCreateParam: !And
+    - !Equals [!Ref CreateMtlsParam, "true"]
+    - !Not [!Condition HasMtlsParam]
+  UseMtls: !Or [!Condition HasMtlsParam, !Condition ShouldCreateParam]
 
 Resources:
-  MtlsSecret:
-    Type: AWS::SecretsManager::Secret
-    Condition: ShouldCreateSecret
+  MtlsParam:
+    Type: AWS::SSM::Parameter
+    Condition: ShouldCreateParam
     Properties:
-      # Derived from the stack name: a fixed name breaks re-deploys (deleted
-      # secrets hold their name for the recovery window) and parallel stacks.
-      Name: !Sub "${AWS::StackName}-mtls-client"
-      Description: mTLS client certificate/key for Alexa Lambda → Home Assistant
+      # Derived from the stack name; parallel stacks get distinct parameters.
+      Name: !Sub "/${AWS::StackName}/mtls-client"
+      Type: String
+      Tier: Standard
+      DataType: text
+      Description: mTLS client certificate/key JSON for Alexa Lambda → Home Assistant
       # ToJsonString handles PEM newlines; a plain !Sub would emit broken JSON.
-      SecretString: !ToJsonString
+      Value: !ToJsonString
         client_crt: !Ref ClientCrt
         client_key: !Ref ClientKey
 
@@ -144,11 +155,11 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
-  SecretReadPolicy:
+  ParamReadPolicy:
     Type: AWS::IAM::Policy
     Condition: UseMtls
     Properties:
-      PolicyName: read-mtls-secret
+      PolicyName: read-mtls-param
       Roles:
         - !Ref LambdaRole
       PolicyDocument:
@@ -156,8 +167,18 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
-              - secretsmanager:GetSecretValue
-            Resource: !If [HasMtlsSecret, !Ref MtlsSecretArn, !Ref MtlsSecret]
+              - ssm:GetParameter
+            Resource: !If
+              - HasMtlsParam
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MtlsParamName}"
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/mtls-client"
+          # Uses the default aws/ssm KMS key; no kms:Decrypt needed for it.
+
+  SmartHomeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${SmartHomeFunction}"
+      RetentionInDays: !Ref LogRetentionDays
 
   SmartHomeFunction:
     Type: AWS::Lambda::Function
@@ -179,7 +200,7 @@ Resources:
         Variables: !If
           - UseMtls
           - BASE_URL: !Ref BaseUrl
-            MTLS_CERT_SECRET: !If [HasMtlsSecret, !Ref MtlsSecretArn, !Ref MtlsSecret]
+            MTLS_CERT_PARAM: !If [HasMtlsParam, !Ref MtlsParamName, !Ref MtlsParam]
           - BASE_URL: !Ref BaseUrl
 
   AlexaInvokePermission:
@@ -196,6 +217,6 @@ Outputs:
     Value: !GetAtt SmartHomeFunction.Arn
   FunctionName:
     Value: !Ref SmartHomeFunction
-  MtlsSecretArnOut:
+  MtlsParamNameOut:
     Condition: UseMtls
-    Value: !If [HasMtlsSecret, !Ref MtlsSecretArn, !Ref MtlsSecret]
+    Value: !If [HasMtlsParam, !Ref MtlsParamName, !Ref MtlsParam]

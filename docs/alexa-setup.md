@@ -44,15 +44,18 @@ step ca certificate alexa-lambda client.crt client.key \
   --not-after 2160h   # 90 days; renew with `step ca renew`
 ```
 
-Put it in Secrets Manager (**recommended**, keeps the key out of CloudFormation):
+Put it in an SSM SecureString parameter (**recommended**, keeps the key out of
+CloudFormation). Standard-tier parameters are free and hold a typical client
+cert+key JSON easily.
 
 ```bash
 jq -n --arg c "$(cat client.crt)" --arg k "$(cat client.key)" \
   '{client_crt:$c, client_key:$k}' > /tmp/mtls.json
 
-aws secretsmanager create-secret --name alexa-ha-mtls-client \
-  --secret-string file:///tmp/mtls.json --region us-east-1
-# note the returned ARN for MtlsSecretArn
+aws ssm put-parameter --name "/alexa-ha-smarthome/mtls-client" \
+  --type SecureString --tier Standard \
+  --value file:///tmp/mtls.json --region us-east-1
+# note the name for MtlsParamName
 ```
 
 Point nginx at your CA and use [nginx/homeassistant.conf](../nginx/homeassistant.conf).
@@ -62,8 +65,7 @@ Point nginx at your CA and use [nginx/homeassistant.conf](../nginx/homeassistant
 Package and upload the Lambda zip (or use GitHub Actions → `deploy`):
 
 ```bash
-cd lambda && pip install -r requirements.txt -t . \
-  && zip -r ../lambda.zip . -x 'requirements.txt' '*__pycache__*' '*.pyc' && cd ..
+cd lambda && zip -r ../lambda.zip . -x 'requirements.txt' '*__pycache__*' '*.pyc' && cd ..
 
 aws s3 mb s3://YOUR-artifacts-bucket --region us-east-1   # once
 aws s3 cp lambda.zip s3://YOUR-artifacts-bucket/alexa-ha/lambda.zip
@@ -76,13 +78,14 @@ aws cloudformation deploy \
   --parameter-overrides \
     BaseUrl=https://ha.example.com \
     AlexaSkillId=amzn1.ask.skill.xxxxxxxx \
+    LogRetentionDays=90 \
     CodeS3Bucket=YOUR-artifacts-bucket \
     CodeS3Key=alexa-ha/lambda.zip \
-    MtlsSecretArn=arn:aws:secretsmanager:us-east-1:111122223333:secret:alexa-ha-mtls-client-AbCdEf
+    MtlsParamName=/alexa-ha-smarthome/mtls-client
 ```
 
 - Leave `AlexaSkillId` empty on the first deploy; set it later to lock the permission.
-- Without mTLS, omit `MtlsSecretArn`.
+- Without mTLS, omit `MtlsParamName`.
 
 ## 5. Account linking (Developer Console)
 

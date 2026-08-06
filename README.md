@@ -24,11 +24,17 @@ Alexa app   → https://ha.example.com/auth/authorize + /auth/token (no client c
 
 1. **Home Assistant:** enable `alexa.smart_home`; set external URL to `https://ha.example.com`.
 2. **Alexa Developer Console:** create Smart Home skill (payload v3); note Skill ID.
-3. **mTLS (recommended):** run step-ca (see [`docs/step-ca.md`](docs/step-ca.md)), issue a client cert, store it in AWS Secrets Manager.
+3. **mTLS (recommended):** run step-ca (see [`docs/step-ca.md`](docs/step-ca.md)), issue a client cert, store it in an SSM SecureString parameter.
 4. **Deploy:** see [`docs/alexa-setup.md`](docs/alexa-setup.md) for the `aws cloudformation deploy` command, or run the `deploy` GitHub Action (set `AWS_ROLE_ARN`, `ARTIFACT_BUCKET`, `AWS_REGION`).
 5. **Link account** in the Alexa app.
 
 **Region:** North America → `us-east-1`.
+
+## Cost
+
+This stack is designed to run at ~$0/month: arm64 Lambda at 128MB, free SSM
+standard-tier SecureString parameters instead of Secrets Manager, and a
+configurable CloudWatch log retention (default 90 days).
 
 ## Why mTLS?
 

@@ -1,2 +1,2 @@
-urllib3>=2,<3
-boto3>=1.34,<2
+# Intentionally empty: boto3 and urllib3 are provided by the Lambda runtime.
+# This file is kept so CI packaging has a stable install step.

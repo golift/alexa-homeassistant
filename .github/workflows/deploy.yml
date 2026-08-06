@@ -10,10 +10,14 @@ on:
         description: Alexa Skill ID (leave empty on first deploy)
         required: false
         default: ""
-      mtls_secret_arn:
-        description: Existing Secrets Manager ARN for mTLS cert (optional)
+      mtls_param_name:
+        description: Existing SSM parameter name for mTLS cert (optional)
         required: false
         default: ""
+      log_retention_days:
+        description: CloudWatch log retention in days
+        required: false
+        default: "90"
 
 permissions:
   id-token: write
@@ -36,9 +40,7 @@ jobs:
 
       - name: Package Lambda
         working-directory: lambda
-        run: |
-          python -m pip install -r requirements.txt -t .
-          zip -r ../lambda.zip . -x 'requirements.txt' '*__pycache__*' '*.pyc'
+        run: zip -r ../lambda.zip . -x 'requirements.txt' '*__pycache__*' '*.pyc'
 
       - name: Upload artifact
         run: aws s3 cp lambda.zip s3://${{ secrets.ARTIFACT_BUCKET }}/alexa-ha/lambda.zip
@@ -53,6 +55,7 @@ jobs:
             --parameter-overrides \
               BaseUrl=${{ inputs.base_url }} \
               AlexaSkillId=${{ inputs.skill_id }} \
-              MtlsSecretArn=${{ inputs.mtls_secret_arn }} \
+              LogRetentionDays=${{ inputs.log_retention_days }} \
+              MtlsParamName=${{ inputs.mtls_param_name }} \
               CodeS3Bucket=${{ secrets.ARTIFACT_BUCKET }} \
               CodeS3Key=alexa-ha/lambda.zip

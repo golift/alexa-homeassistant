@@ -43,7 +43,7 @@ step ca bootstrap --ca-url https://step-ca.lan:9000 --fingerprint "$CA_FP"
 step ca certificate alexa-lambda client.crt client.key \
   --not-after 2160h     # 90 days
 
-# Upload to AWS (see alexa-setup.md), then:
+# Upload the JSON to SSM (see alexa-setup.md), then:
 shred -u client.key     # or store safely; renewal below makes rotation easy
 ```
 
@@ -60,7 +60,7 @@ Copy `root_ca.crt` out of appdata (`certs/root_ca.crt`) into your nginx containe
 
 ```bash
 step ca renew client.crt client.key --ca-url https://step-ca.lan:9000 --force
-# re-upload to Secrets Manager; Lambda picks it up on next cold start
+# re-upload to the SSM parameter; Lambda picks it up on next cold start
 ```
 
 Short-lived certs + renewal are the point of step-ca; avoid stuffing a 10-year
