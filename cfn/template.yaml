@@ -1,5 +1,4 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Transform: AWS::LanguageExtensions
 Description: >-
   Alexa Smart Home → Home Assistant over HTTPS, with optional mTLS at your
   reverse proxy (nginx). Lambda proxies Alexa directives to
@@ -24,9 +23,6 @@ Metadata:
           default: "mTLS (optional)"
         Parameters:
           - MtlsParamName
-          - CreateMtlsParam
-          - ClientCrt
-          - ClientKey
     ParameterLabels:
       BaseUrl:
         default: "Home Assistant public URL"
@@ -35,13 +31,7 @@ Metadata:
       LogRetentionDays:
         default: "CloudWatch log retention"
       MtlsParamName:
-        default: "Existing SSM parameter name"
-      CreateMtlsParam:
-        default: "Create param from inline PEM?"
-      ClientCrt:
-        default: "Client certificate PEM"
-      ClientKey:
-        default: "Client private key PEM"
+        default: "SSM SecureString parameter name"
 
 Parameters:
   BaseUrl:
@@ -77,69 +67,16 @@ Parameters:
     Default: ""
     Description: >-
       Optional. Name of an existing SSM SecureString parameter containing JSON:
-      {"client_crt": "PEM...", "client_key": "PEM..."}. Overrides CreateMtlsParam.
-      Standard tier (4KB) is free and holds a typical client cert+key.
-
-  CreateMtlsParam:
-    Type: String
-    Default: "false"
-    AllowedValues: ["true", "false"]
-    Description: >-
-      If true, create the SSM parameter from ClientCrt/ClientKey below. Prefer
-      CLI upload (docs/alexa-setup.md) so keys are not stored in CloudFormation
-      parameters.
-
-  ClientCrt:
-    Type: String
-    Default: ""
-    NoEcho: true
-    Description: "PEM client certificate (only when CreateMtlsParam=true)."
-
-  ClientKey:
-    Type: String
-    Default: ""
-    NoEcho: true
-    Description: "PEM client private key (only when CreateMtlsParam=true)."
-
-Rules:
-  # CreateMtlsParam=true without PEM material would create an empty parameter
-  # and break the TLS handshake at runtime; fail at deploy time instead.
-  InlinePemRequired:
-    RuleCondition: !And
-      - !Equals [!Ref CreateMtlsParam, "true"]
-      - !Equals [!Ref MtlsParamName, ""]
-    Assertions:
-      - Assert: !And
-          - !Not [!Equals [!Ref ClientCrt, ""]]
-          - !Not [!Equals [!Ref ClientKey, ""]]
-        AssertDescription: >-
-          CreateMtlsParam=true requires both ClientCrt and ClientKey
-          (or pass an existing MtlsParamName instead).
+      {"client_crt": "PEM...", "client_key": "PEM..."}. Create it with
+      `aws ssm put-parameter --type SecureString` (see docs/alexa-setup.md).
+      CloudFormation cannot create SecureString parameters, so this must
+      exist beforehand. Standard tier (4KB) is free.
 
 Conditions:
   HasSkillId: !Not [!Equals [!Ref AlexaSkillId, ""]]
-  HasMtlsParam: !Not [!Equals [!Ref MtlsParamName, ""]]
-  ShouldCreateParam: !And
-    - !Equals [!Ref CreateMtlsParam, "true"]
-    - !Not [!Condition HasMtlsParam]
-  UseMtls: !Or [!Condition HasMtlsParam, !Condition ShouldCreateParam]
+  UseMtls: !Not [!Equals [!Ref MtlsParamName, ""]]
 
 Resources:
-  MtlsParam:
-    Type: AWS::SSM::Parameter
-    Condition: ShouldCreateParam
-    Properties:
-      # Derived from the stack name; parallel stacks get distinct parameters.
-      Name: !Sub "/${AWS::StackName}/mtls-client"
-      Type: String
-      Tier: Standard
-      DataType: text
-      Description: mTLS client certificate/key JSON for Alexa Lambda → Home Assistant
-      # ToJsonString handles PEM newlines; a plain !Sub would emit broken JSON.
-      Value: !ToJsonString
-        client_crt: !Ref ClientCrt
-        client_key: !Ref ClientKey
-
   LambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -168,17 +105,10 @@ Resources:
           - Effect: Allow
             Action:
               - ssm:GetParameter
-            Resource: !If
-              - HasMtlsParam
-              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MtlsParamName}"
-              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/mtls-client"
-          # Uses the default aws/ssm KMS key; no kms:Decrypt needed for it.
-
-  SmartHomeLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/lambda/${SmartHomeFunction}"
-      RetentionInDays: !Ref LogRetentionDays
+            # Name must include a leading slash (e.g. /alexa-ha/mtls-client)
+            # so the ARN becomes ...:parameter/alexa-ha/mtls-client.
+            Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MtlsParamName}"
+          # Default aws/ssm KMS key: no extra kms:Decrypt needed.
 
   SmartHomeFunction:
     Type: AWS::Lambda::Function
@@ -200,8 +130,15 @@ Resources:
         Variables: !If
           - UseMtls
           - BASE_URL: !Ref BaseUrl
-            MTLS_CERT_PARAM: !If [HasMtlsParam, !Ref MtlsParamName, !Ref MtlsParam]
+            MTLS_CERT_PARAM: !Ref MtlsParamName
           - BASE_URL: !Ref BaseUrl
+
+  # Created after the function so LogGroupName can !Ref it without a cycle.
+  SmartHomeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${SmartHomeFunction}"
+      RetentionInDays: !Ref LogRetentionDays
 
   AlexaInvokePermission:
     Type: AWS::Lambda::Permission
@@ -219,4 +156,4 @@ Outputs:
     Value: !Ref SmartHomeFunction
   MtlsParamNameOut:
     Condition: UseMtls
-    Value: !If [HasMtlsParam, !Ref MtlsParamName, !Ref MtlsParam]
+    Value: !Ref MtlsParamName

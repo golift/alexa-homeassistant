@@ -15,17 +15,18 @@ import logging
 import os
 import ssl
 import tempfile
+import urllib.error
+import urllib.request
 import uuid
 
 import boto3
-from botocore.vendored.requests.packages import urllib3
 
 _logger = logging.getLogger("HomeAssistant-SmartHome")
 _logger.setLevel(logging.DEBUG if os.environ.get("DEBUG") == "True" else logging.INFO)
 
 _ssm = boto3.client("ssm")
 _mtls_paths = {}
-_http = None
+_ssl_context = None
 
 
 def _error(err_type, message, directive=None):
@@ -62,6 +63,17 @@ def _redact(obj):
     return obj
 
 
+def _safe_text(data, limit=500):
+    """Decode bytes for logging without raising; truncate to avoid log floods."""
+    if isinstance(data, str):
+        text = data
+    else:
+        text = data.decode("utf-8", errors="replace")
+    if len(text) > limit:
+        return text[:limit] + "...(truncated)"
+    return text
+
+
 def _mtls_cert_paths():
     """Return (cert_file, key_file) or (None, None) if mTLS is not configured."""
     param_name = os.environ.get("MTLS_CERT_PARAM")
@@ -89,21 +101,35 @@ def _mtls_cert_paths():
     return cert.name, key.name
 
 
-def _http_manager():
-    """PoolManager cached per container so warm invocations reuse connections."""
-    global _http
-    if _http is None:
+def _ssl_ctx():
+    """SSL context cached per container (includes client cert when mTLS is on)."""
+    global _ssl_context
+    if _ssl_context is None:
+        ctx = ssl.create_default_context()
         cert_file, key_file = _mtls_cert_paths()
-        kwargs = {
-            "ca_certs": ssl.get_default_verify_paths().cafile,
-            "cert_reqs": "CERT_REQUIRED",
-            "timeout": urllib3.Timeout(connect=2.0, read=10.0),
-        }
         if cert_file and key_file:
-            kwargs["cert_file"] = cert_file
-            kwargs["key_file"] = key_file
-        _http = urllib3.PoolManager(**kwargs)
-    return _http
+            ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+        _ssl_context = ctx
+    return _ssl_context
+
+
+def _post_ha(url, token, body):
+    """POST JSON to Home Assistant. Returns (status, body_bytes). Raises on network errors."""
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": "Bearer {}".format(token),
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, context=_ssl_ctx(), timeout=10) as resp:
+            return resp.getcode(), resp.read()
+    except urllib.error.HTTPError as exc:
+        # HTTPError is also a file-like response; read the body for logging.
+        return exc.code, exc.read()
 
 
 def lambda_handler(event, context):
@@ -144,21 +170,25 @@ def lambda_handler(event, context):
             "INVALID_AUTHORIZATION_CREDENTIAL", "No bearer token in directive.", directive
         )
 
-    response = _http_manager().request(
-        "POST",
-        "{}/api/alexa/smart_home".format(base_url),
-        headers={
-            "Authorization": "Bearer {}".format(token),
-            "Content-Type": "application/json",
-        },
-        body=json.dumps(event).encode("utf-8"),
-    )
+    try:
+        status, body = _post_ha(
+            "{}/api/alexa/smart_home".format(base_url),
+            token,
+            json.dumps(event).encode("utf-8"),
+        )
+    except (urllib.error.URLError, TimeoutError, ssl.SSLError, OSError) as exc:
+        _logger.error("Upstream request to Home Assistant failed: %s", exc)
+        return _error(
+            "INTERNAL_ERROR",
+            "Could not reach Home Assistant.",
+            directive,
+        )
 
-    if response.status >= 400:
-        # Log the body for debugging, but never return it to Alexa: it can be
-        # HTML or leak internal details.
-        _logger.error("HA error %s: %s", response.status, response.data.decode("utf-8"))
-        if response.status in (401, 403):
+    if status >= 400:
+        # Log a safe, truncated body; never return it to Alexa (can be HTML /
+        # leak internals).
+        _logger.error("HA error %s: %s", status, _safe_text(body))
+        if status in (401, 403):
             return _error(
                 "INVALID_AUTHORIZATION_CREDENTIAL",
                 "Home Assistant rejected the access token.",
@@ -166,9 +196,18 @@ def lambda_handler(event, context):
             )
         return _error(
             "INTERNAL_ERROR",
-            "Home Assistant returned HTTP {}.".format(response.status),
+            "Home Assistant returned HTTP {}.".format(status),
             directive,
         )
 
-    _logger.debug("Response: %s", response.data.decode("utf-8"))
-    return json.loads(response.data.decode("utf-8"))
+    text = _safe_text(body, limit=10000)
+    _logger.debug("Response: %s", _safe_text(text))
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        _logger.error("Home Assistant returned non-JSON body: %s", _safe_text(body))
+        return _error(
+            "INTERNAL_ERROR",
+            "Home Assistant returned an invalid response.",
+            directive,
+        )

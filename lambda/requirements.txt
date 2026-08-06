@@ -1,2 +1,2 @@
-# Intentionally empty: boto3 and urllib3 are provided by the Lambda runtime.
-# This file is kept so CI packaging has a stable install step.
+# Intentionally empty: boto3 is provided by the Lambda runtime, and HTTP uses
+# the stdlib (urllib.request + ssl). This file is kept so packaging stays stable.

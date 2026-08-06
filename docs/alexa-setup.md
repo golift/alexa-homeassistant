@@ -44,9 +44,9 @@ step ca certificate alexa-lambda client.crt client.key \
   --not-after 2160h   # 90 days; renew with `step ca renew`
 ```
 
-Put it in an SSM SecureString parameter (**recommended**, keeps the key out of
-CloudFormation). Standard-tier parameters are free and hold a typical client
-cert+key JSON easily.
+Put it in an SSM SecureString parameter (standard tier is free; typical
+client cert+key JSON fits in 4KB). CloudFormation cannot create SecureString
+parameters, so do this once via CLI before deploying:
 
 ```bash
 jq -n --arg c "$(cat client.crt)" --arg k "$(cat client.key)" \
@@ -55,8 +55,10 @@ jq -n --arg c "$(cat client.crt)" --arg k "$(cat client.key)" \
 aws ssm put-parameter --name "/alexa-ha-smarthome/mtls-client" \
   --type SecureString --tier Standard \
   --value file:///tmp/mtls.json --region us-east-1
-# note the name for MtlsParamName
+# pass this name as MtlsParamName
 ```
+
+To rotate later: `aws ssm put-parameter ... --overwrite`.
 
 Point nginx at your CA and use [nginx/homeassistant.conf](../nginx/homeassistant.conf).
 
