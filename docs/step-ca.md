@@ -22,7 +22,7 @@ docker volume create step-ca
 docker run -d --name step-ca \
   -v step-ca:/home/step -p 9000:9000 \
   -e DOCKER_STEPCA_INIT_NAME="Home CA" \
-  -e DOCKER_STEPCA_INIT_DNS_NAMES="step-ca,localhost" \
+  -e DOCKER_STEPCA_INIT_DNS_NAMES="step-ca.lan,step-ca,localhost" \
   -e DOCKER_STEPCA_INIT_PASSWORD='change-me' \
   -e DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true \
   smallstep/step-ca
@@ -34,6 +34,7 @@ docker run -d --name step-ca \
 brew install step    # or https://smallstep.com/docs/step-cli/installation
 
 CA_FP=$(docker exec step-ca step certificate fingerprint /home/step/certs/root_ca.crt)
+# --ca-url hostname must be one of DOCKER_STEPCA_INIT_DNS_NAMES above.
 step ca bootstrap --ca-url https://step-ca.lan:9000 --fingerprint "$CA_FP"
 ```
 
