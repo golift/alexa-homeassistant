@@ -205,11 +205,12 @@ def lambda_handler(event, context):
             directive,
         )
 
-    text = _safe_text(body, limit=10000)
-    _logger.debug("Response: %s", text)
+    _logger.debug("Response: %s", _safe_text(body, limit=10000))
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
+        # Parse the raw body; _safe_text truncates and must never touch the
+        # payload itself (large Discover.Response bodies broke here once).
+        return json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
         _logger.error("Home Assistant returned non-JSON body: %s", _safe_text(body))
         return _error(
             "INTERNAL_ERROR",
