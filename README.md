@@ -15,9 +15,11 @@ Alexa app   → https://ha.example.com/auth/authorize + /auth/token (no client c
 |------|------|
 | [`lambda/`](lambda/) | Python proxy (`lambda_function.py`), dependencies |
 | [`cfn/template.yaml`](cfn/template.yaml) | CloudFormation: Lambda, IAM, Alexa invoke permission |
+| [`cfn/rotation.yaml`](cfn/rotation.yaml) | CloudFormation: IAM Roles Anywhere trust for automatic cert rotation |
+| [`docker/`](docker/) | `cert-rotator` image: renews client certs and republishes them to SSM |
 | [`nginx/homeassistant.conf`](nginx/homeassistant.conf) | mTLS + OAuth path exceptions |
-| [`unraid/step-ca.xml`](unraid/step-ca.xml) | unRAID Community Applications template for [`smallstep/step-ca`](https://hub.docker.com/r/smallstep/step-ca/) |
-| [`docs/`](docs/) | [Alexa setup](docs/alexa-setup.md), [step-ca](docs/step-ca.md), [nginx](docs/nginx.md) |
+| [`unraid/`](unraid/) | unRAID templates for [`smallstep/step-ca`](https://hub.docker.com/r/smallstep/step-ca/) and `cert-rotator` |
+| [`docs/`](docs/) | [Alexa setup](docs/alexa-setup.md), [step-ca](docs/step-ca.md), [nginx](docs/nginx.md), [rotation](docs/rotation.md) |
 | [`.github/workflows/`](.github/workflows/) | Build zip → S3 → `cloudformation deploy` (manual dispatch) |
 
 ## Quick start
@@ -27,6 +29,7 @@ Alexa app   → https://ha.example.com/auth/authorize + /auth/token (no client c
 3. **mTLS (recommended):** run step-ca (see [`docs/step-ca.md`](docs/step-ca.md)), issue a client cert, store it in an SSM SecureString parameter.
 4. **Deploy:** see [`docs/alexa-setup.md`](docs/alexa-setup.md) for the `aws cloudformation deploy` command, or run the `deploy` GitHub Action (set `AWS_ROLE_ARN`, `ARTIFACT_BUCKET`, `AWS_REGION`).
 5. **Link account** in the Alexa app.
+6. **Automate renewal:** run the [`cert-rotator`](docs/rotation.md) container so the client certificate never expires on you.
 
 **Region:** North America → `us-east-1`.
 
