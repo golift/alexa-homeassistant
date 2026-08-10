@@ -150,7 +150,9 @@ Checks are no-ops until the certificate is inside the renewal window, so force
 one by asking for a window wider than the certificate's remaining life:
 
 ```bash
-docker run --rm -e RENEW_BEFORE=9999h -e ONESHOT=true ... cert-rotator:latest
+# expires-in must be less than the certificate's total lifetime (2160h for a
+# 90-day cert), but larger than the remaining life, or step refuses the request.
+docker run --rm -e RENEW_BEFORE=2100h -e ONESHOT=true ... cert-rotator:latest
 ```
 
 Then confirm the parameter version incremented and the Lambda still works:
