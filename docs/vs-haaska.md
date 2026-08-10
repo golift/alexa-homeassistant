@@ -10,7 +10,7 @@ deployed, and how the public HA endpoint is locked down.
 
 ## At a glance
 
-| | **haaska** | **alexa-homeassistant** (this repo) |
+| Concern | **haaska** | **alexa-homeassistant** (this repo) |
 |---|---|---|
 | Core behavior | POST the Alexa event to HA | Same |
 | HA auth | Long-lived access token in `config.json` | Bearer token from Alexa account linking (per request) |
