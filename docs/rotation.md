@@ -115,6 +115,7 @@ of typing that out.
 | `CA_ROOT` | `/certs/root_ca.crt` | CA root used to verify step-ca |
 | `CLIENT_CERT` / `CLIENT_KEY` | `/certs/alexa-lambda.*` | certificate published to SSM |
 | `AUTH_CERT` / `AUTH_KEY` | `/certs/rotator.*` | certificate used for AWS |
+| `STATE_FILE` | `/certs/.published-fingerprint` | fingerprint SSM last accepted |
 | `RENEW_BEFORE` | `720h` | renew inside this much of expiry |
 | `INTERVAL` | `12h` | sleep between checks |
 | `ONESHOT` | `false` | check once and exit, for cron |
@@ -122,6 +123,20 @@ of typing that out.
 
 Leave `TRUST_ANCHOR_ARN` empty to skip Roles Anywhere and use ordinary AWS
 credentials (environment variables, or a mounted `~/.aws`) instead.
+
+`SSM_PARAMETER` must be the same parameter the Lambda reads (`MtlsParamName` in
+the Lambda stack). Writing creates the parameter if it does not exist, so a
+typo here produces a container that reports successful rotations forever while
+the Lambda keeps reading a parameter nobody updates.
+
+### Publishing is separate from renewing
+
+The container records the fingerprint of whatever SSM last accepted in
+`STATE_FILE`, and uploads whenever the certificate on disk differs from it.
+Renewal and publication therefore fail independently: if a certificate renews
+but the upload fails, the next pass retries the upload instead of assuming the
+new certificate was delivered. It also means the first run uploads once, so
+that SSM and disk are known to agree.
 
 ### Running from cron instead
 

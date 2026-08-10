@@ -70,7 +70,7 @@ Parameters:
     AllowedPattern: "^$|^/.+"
     ConstraintDescription: >-
       Must be empty (no mTLS) or start with a leading slash, e.g.
-      /alexa-ha-smarthome/mtls-client. The leading slash is required for the
+      /alexa-ha/mtls-client. The leading slash is required for the
       IAM resource ARN (parameter${Name}) to resolve correctly.
     Description: >-
       Optional. Name of an existing SSM SecureString parameter containing JSON:

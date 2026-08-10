@@ -19,6 +19,9 @@ CA_ROOT="${CA_ROOT:-/certs/root_ca.crt}"
 CLIENT_CERT="${CLIENT_CERT:-/certs/alexa-lambda.crt}"
 CLIENT_KEY="${CLIENT_KEY:-/certs/alexa-lambda.key}"
 SSM_PARAMETER="${SSM_PARAMETER:-}"
+# Fingerprint of the certificate SSM last accepted. Renewal and publication are
+# tracked separately so a failed upload is retried rather than forgotten.
+STATE_FILE="${STATE_FILE:-/certs/.published-fingerprint}"
 RENEW_BEFORE="${RENEW_BEFORE:-720h}"
 INTERVAL="${INTERVAL:-12h}"
 ONESHOT="${ONESHOT:-false}"
@@ -72,6 +75,10 @@ fingerprint() {
     step certificate fingerprint "$1"
 }
 
+published_fingerprint() {
+    [[ -r "${STATE_FILE}" ]] && cat "${STATE_FILE}" || true
+}
+
 expires() {
     step certificate inspect --format json "$1" | jq -r '.validity.end'
 }
@@ -95,7 +102,7 @@ renew() {
 }
 
 publish() {
-    local tmp
+    local fp="$1" tmp
     tmp=$(mktemp /tmp/ssm-XXXXXX.json)
     # Build the API request in a file so the PEMs never appear in argv.
     if ! jq -n --arg name "${SSM_PARAMETER}" \
@@ -114,7 +121,11 @@ publish() {
     fi
     rm -f "${tmp}"
 
-    notify info "Alexa client certificate rotated" \
+    # Only recorded once SSM has accepted the upload, so any earlier failure
+    # leaves the certificate queued for the next pass.
+    printf '%s\n' "${fp}" >"${STATE_FILE}"
+
+    notify info "Alexa client certificate published" \
         "${SSM_PARAMETER} is now version ${version}, valid until $(expires "${CLIENT_CERT}")."
 }
 
@@ -144,11 +155,23 @@ run_once() {
     fi
 
     if renew "${CLIENT_CERT}" "${CLIENT_KEY}" "Alexa client"; then
-        log "Alexa client certificate renewed; publishing to ${SSM_PARAMETER}"
-        publish
+        log "Alexa client certificate renewed, valid until $(expires "${CLIENT_CERT}")"
     else
-        log "Alexa client certificate still valid until $(expires "${CLIENT_CERT}"), nothing to do"
+        log "Alexa client certificate still valid until $(expires "${CLIENT_CERT}")"
     fi
+
+    # Compare against what SSM last accepted rather than against what this pass
+    # renewed. A renewal whose upload failed is still pending, and a first run
+    # publishes once to guarantee SSM and disk agree.
+    local current
+    current=$(fingerprint "${CLIENT_CERT}")
+    if [[ "${current}" == "$(published_fingerprint)" ]]; then
+        log "${SSM_PARAMETER} already holds this certificate, nothing to publish"
+        return
+    fi
+
+    log "publishing the Alexa client certificate to ${SSM_PARAMETER}"
+    publish "${current}"
 }
 
 main() {
