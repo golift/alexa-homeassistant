@@ -50,11 +50,16 @@ Parameters:
 
   MtlsParamName:
     Type: String
-    AllowedPattern: "^/.+"
-    ConstraintDescription: Must start with a leading slash, e.g. /alexa-ha/mtls-client.
+    AllowedPattern: '^/[a-zA-Z0-9_./-]+$'
+    ConstraintDescription: >-
+      Must start with a leading slash and contain only characters valid in an
+      SSM parameter name (letters, digits, underscore, dot, hyphen, slash),
+      e.g. /alexa-ha/mtls-client.
     Description: >-
       The SSM SecureString parameter holding the Alexa client certificate. This
-      is the only parameter the rotator is allowed to write.
+      is the only parameter the rotator is allowed to write. The pattern
+      deliberately excludes the IAM wildcards * and ?, which would otherwise
+      widen the policy below to several parameters.
 
   SessionDurationSeconds:
     Type: Number

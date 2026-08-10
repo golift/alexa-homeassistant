@@ -67,11 +67,14 @@ Parameters:
   MtlsParamName:
     Type: String
     Default: ""
-    AllowedPattern: "^$|^/.+"
+    AllowedPattern: '^$|^/[a-zA-Z0-9_./-]+$'
     ConstraintDescription: >-
-      Must be empty (no mTLS) or start with a leading slash, e.g.
-      /alexa-ha/mtls-client. The leading slash is required for the
-      IAM resource ARN (parameter${Name}) to resolve correctly.
+      Must be empty (no mTLS), or start with a leading slash and contain only
+      characters valid in an SSM parameter name (letters, digits, underscore,
+      dot, hyphen, slash), e.g. /alexa-ha/mtls-client. The leading slash is
+      required for the IAM resource ARN (parameter${Name}) to resolve
+      correctly, and excluding the IAM wildcards * and ? keeps the read policy
+      scoped to a single parameter.
     Description: >-
       Optional. Name of an existing SSM SecureString parameter containing JSON:
       {"client_crt": "PEM...", "client_key": "PEM..."}. Create it with

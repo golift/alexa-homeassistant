@@ -76,7 +76,9 @@ fingerprint() {
 }
 
 published_fingerprint() {
-    [[ -r "${STATE_FILE}" ]] && cat "${STATE_FILE}" || true
+    if [[ -r "${STATE_FILE}" ]]; then
+        cat "${STATE_FILE}"
+    fi
 }
 
 expires() {

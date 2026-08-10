@@ -22,8 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned: the runner's bundled shellcheck drifts from what developers run
+      # locally, and the two disagree about which findings are worth failing on.
       - name: Lint the entrypoint
-        run: shellcheck docker/rotate.sh
+        run: |
+          docker run --rm -v "$PWD:/mnt" -w /mnt \
+            koalaman/shellcheck:v0.11.0 docker/rotate.sh
 
       - uses: docker/setup-buildx-action@v3
 
