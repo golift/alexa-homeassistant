@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>cert-rotator</Name>
+  <Repository>ghcr.io/twitchcaptain/alexa-homeassistant/cert-rotator:latest</Repository>
+  <Registry>https://github.com/TwitchCaptain/alexa-homeassistant/pkgs/container/alexa-homeassistant%2Fcert-rotator</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Shell>bash</Shell>
+  <Support>https://github.com/TwitchCaptain/alexa-homeassistant/issues</Support>
+  <Project>https://github.com/TwitchCaptain/alexa-homeassistant</Project>
+  <Overview>
+Keeps the Alexa Smart Home mTLS client certificate alive.&#xD;
+&#xD;
+It renews short-lived client certificates from your own step-ca and publishes the renewed certificate to an AWS SSM SecureString parameter, where the Alexa Lambda reads it. Nothing needs to be done by hand every 90 days.&#xD;
+&#xD;
+Authentication to AWS uses IAM Roles Anywhere: the container presents its own certificate (issued by your CA) and receives credentials that last one hour and can write exactly one SSM parameter. No AWS access key is stored on this server.&#xD;
+&#xD;
+BEFORE YOU START:&#xD;
+1. Deploy cfn/rotation.yaml to AWS; it prints the three ARNs below.&#xD;
+2. Issue a rotator certificate whose common name matches the one in that stack (default: cert-rotator).&#xD;
+3. Put rotator.crt, rotator.key, alexa-lambda.crt, alexa-lambda.key and root_ca.crt in the certs folder.&#xD;
+&#xD;
+See docs/rotation.md in the project repository for the exact commands.
+  </Overview>
+  <Category>Tools:Utilities Security:</Category>
+  <TemplateURL>https://raw.githubusercontent.com/TwitchCaptain/alexa-homeassistant/main/unraid/cert-rotator.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/TwitchCaptain/alexa-homeassistant/main/unraid/img/step-ca.png</Icon>
+  <Branch>
+    <Tag>latest</Tag>
+    <TagDescription>Latest build from the main branch</TagDescription>
+  </Branch>
+  <Config Name="certs" Target="/certs" Default="/mnt/user/appdata/cert-rotator/certs" Mode="rw" Description="Container Path: /certs - holds root_ca.crt, alexa-lambda.crt/.key and rotator.crt/.key. The renewed certificates are written back here." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="CA URL" Target="CA_URL" Default="" Description="URL of your step-ca, e.g. https://192.168.1.10:9000. The hostname or IP must be one of the CA's configured DNS names." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="SSM Parameter" Target="SSM_PARAMETER" Default="/alexa-ha/mtls-client" Description="SSM SecureString parameter the renewed client certificate is written to. Must match MtlsParamName in the Lambda stack." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="AWS Region" Target="AWS_REGION" Default="us-east-1" Description="Region holding the SSM parameter (same region as the Alexa Lambda)." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Trust Anchor ARN" Target="TRUST_ANCHOR_ARN" Default="" Description="TrustAnchorArn output of the rotation CloudFormation stack. Leave empty to use ordinary AWS credentials instead of IAM Roles Anywhere." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Profile ARN" Target="PROFILE_ARN" Default="" Description="ProfileArn output of the rotation CloudFormation stack." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Role ARN" Target="ROLE_ARN" Default="" Description="RoleArn output of the rotation CloudFormation stack." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Renew Before" Target="RENEW_BEFORE" Default="720h" Description="Renew once the certificate has less than this long to live. 720h is 30 days." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Check Interval" Target="INTERVAL" Default="12h" Description="How long to sleep between checks. Checks are cheap; renewal only happens inside the window above." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Run Once" Target="ONESHOT" Default="false" Description="Set to true to check once and exit, for running from cron or User Scripts instead of leaving the container up." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Notifiarr API Key" Target="NOTIFIARR_APIKEY" Default="" Description="Optional. Sends a passthrough notification when a certificate rotates or a run fails." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+</Container>

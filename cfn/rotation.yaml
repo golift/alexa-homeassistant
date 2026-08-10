@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  IAM Roles Anywhere trust for the cert-rotator container. Lets a machine on
+  your LAN trade a certificate issued by your own CA for short-lived AWS
+  credentials that can write exactly one SSM parameter — the mTLS client
+  certificate used by the Alexa Smart Home Lambda. No long-lived AWS access
+  key is created or stored anywhere.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Your certificate authority"
+        Parameters:
+          - CaCertificatePem
+          - RotatorCertificateCN
+      - Label:
+          default: "What the rotator may write"
+        Parameters:
+          - MtlsParamName
+          - SessionDurationSeconds
+    ParameterLabels:
+      CaCertificatePem:
+        default: "CA certificate (PEM)"
+      RotatorCertificateCN:
+        default: "Rotator certificate common name"
+      MtlsParamName:
+        default: "SSM parameter name"
+      SessionDurationSeconds:
+        default: "Credential lifetime (seconds)"
+
+Parameters:
+  CaCertificatePem:
+    Type: String
+    NoEcho: true
+    Description: >-
+      PEM body of the CA that issues the rotator certificate — for step-ca this
+      is certs/intermediate_ca.crt. Must be a private CA (certificates from
+      public CAs are rejected), X.509v3, CA:TRUE, with Certificate Sign key
+      usage and a SHA256-or-stronger signature.
+
+  RotatorCertificateCN:
+    Type: String
+    Default: cert-rotator
+    MinLength: 1
+    Description: >-
+      Subject common name of the rotator's certificate. The role can only be
+      assumed by a certificate with exactly this CN, so other certificates from
+      the same CA cannot reach AWS.
+
+  MtlsParamName:
+    Type: String
+    AllowedPattern: '^/[a-zA-Z0-9_./-]+$'
+    ConstraintDescription: >-
+      Must start with a leading slash and contain only characters valid in an
+      SSM parameter name (letters, digits, underscore, dot, hyphen, slash),
+      e.g. /alexa-ha/mtls-client.
+    Description: >-
+      The SSM SecureString parameter holding the Alexa client certificate. This
+      is the only parameter the rotator is allowed to write. The pattern
+      deliberately excludes the IAM wildcards * and ?, which would otherwise
+      widen the policy below to several parameters.
+
+  SessionDurationSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 900
+    MaxValue: 3600
+    Description: >-
+      Lifetime of the temporary credentials issued to the rotator. Capped at
+      one hour, the default MaxSessionDuration of the IAM role; raise both to
+      go longer, though rotation only needs a few seconds.
+
+Resources:
+  TrustAnchor:
+    Type: AWS::RolesAnywhere::TrustAnchor
+    Properties:
+      Name: !Sub "${AWS::StackName}-ca"
+      Enabled: true
+      Source:
+        SourceType: CERTIFICATE_BUNDLE
+        SourceData:
+          X509CertificateData: !Ref CaCertificatePem
+
+  RotatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Assumed via IAM Roles Anywhere by the cert-rotator container.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rolesanywhere.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+              - sts:SetSourceIdentity
+            Condition:
+              # Both conditions matter: the ARN check stops another trust
+              # anchor in this account from assuming the role, and the CN check
+              # stops any other certificate from our own CA.
+              ArnEquals:
+                aws:SourceArn: !GetAtt TrustAnchor.TrustAnchorArn
+              StringEquals:
+                aws:PrincipalTag/x509Subject/CN: !Ref RotatorCertificateCN
+      Policies:
+        - PolicyName: write-mtls-param
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${MtlsParamName}"
+
+  RotatorProfile:
+    Type: AWS::RolesAnywhere::Profile
+    Properties:
+      Name: !Sub "${AWS::StackName}-rotator"
+      Enabled: true
+      DurationSeconds: !Ref SessionDurationSeconds
+      RoleArns:
+        - !GetAtt RotatorRole.Arn
+
+Outputs:
+  TrustAnchorArn:
+    Description: TRUST_ANCHOR_ARN for the cert-rotator container
+    Value: !GetAtt TrustAnchor.TrustAnchorArn
+  ProfileArn:
+    Description: PROFILE_ARN for the cert-rotator container
+    Value: !GetAtt RotatorProfile.ProfileArn
+  RoleArn:
+    Description: ROLE_ARN for the cert-rotator container
+    Value: !GetAtt RotatorRole.Arn

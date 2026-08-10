@@ -52,7 +52,7 @@ parameters, so do this once via CLI before deploying:
 jq -n --arg c "$(cat client.crt)" --arg k "$(cat client.key)" \
   '{client_crt:$c, client_key:$k}' > /tmp/mtls.json
 
-aws ssm put-parameter --name "/alexa-ha-smarthome/mtls-client" \
+aws ssm put-parameter --name "/alexa-ha/mtls-client" \
   --type SecureString --tier Standard \
   --value file:///tmp/mtls.json --region us-east-1
 # pass this name as MtlsParamName
@@ -83,7 +83,7 @@ aws cloudformation deploy \
     LogRetentionDays=90 \
     CodeS3Bucket=YOUR-artifacts-bucket \
     CodeS3Key=alexa-ha/lambda.zip \
-    MtlsParamName=/alexa-ha-smarthome/mtls-client
+    MtlsParamName=/alexa-ha/mtls-client
 ```
 
 - Leave `AlexaSkillId` empty on the first deploy; set it later to lock the permission.

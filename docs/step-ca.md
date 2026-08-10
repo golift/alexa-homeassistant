@@ -59,10 +59,17 @@ Copy `root_ca.crt` out of appdata (`certs/root_ca.crt`) into your nginx containe
 
 ## Renewal (mTLS client certs support `step ca renew`)
 
+`step ca renew` authenticates over mTLS using the certificate being renewed, so
+it needs no CA password. It is also a no-op until the certificate is close to
+expiry, which makes it safe to run on a timer:
+
 ```bash
-step ca renew client.crt client.key --ca-url https://step-ca.lan:9000 --force
+step ca renew --force --expires-in 720h \
+  --ca-url https://step-ca.lan:9000 --root root_ca.crt client.crt client.key
 # re-upload to the SSM parameter; Lambda picks it up on next cold start
 ```
 
 Short-lived certs + renewal are the point of step-ca; avoid stuffing a 10-year
-client key into AWS and forgetting it.
+client key into AWS and forgetting it. Better still, don't do it by hand at
+all — see [rotation.md](rotation.md) for a container that renews these
+certificates and republishes them to SSM automatically.
