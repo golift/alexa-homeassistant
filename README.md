@@ -19,7 +19,7 @@ Alexa app   → https://ha.example.com/auth/authorize + /auth/token (no client c
 | [`docker/`](docker/) | `cert-rotator` image: renews client certs and republishes them to SSM |
 | [`nginx/homeassistant.conf`](nginx/homeassistant.conf) | mTLS + OAuth path exceptions |
 | [`unraid/`](unraid/) | unRAID templates for [`smallstep/step-ca`](https://hub.docker.com/r/smallstep/step-ca/) and `cert-rotator` |
-| [`docs/`](docs/) | [Alexa setup](docs/alexa-setup.md), [step-ca](docs/step-ca.md), [nginx](docs/nginx.md), [rotation](docs/rotation.md) |
+| [`docs/`](docs/) | [Alexa setup](docs/alexa-setup.md), [step-ca](docs/step-ca.md), [nginx](docs/nginx.md), [rotation](docs/rotation.md), [vs haaska](docs/vs-haaska.md) |
 | [`.github/workflows/`](.github/workflows/) | Build zip → S3 → `cloudformation deploy` (manual dispatch) |
 
 ## Quick start
@@ -50,6 +50,7 @@ a client certificate from your private CA — while Amazon’s OAuth callbacks
 
 - Lambda proxy pattern: [haaska](https://github.com/mike-grant/haaska) and the
   [Home Assistant Alexa docs](https://www.home-assistant.io/integrations/alexa.smart_home/).
+  See [docs/vs-haaska.md](docs/vs-haaska.md) for how this project differs.
 - CA: [Smallstep step-ca](https://smallstep.com/docs/step-ca/).
 
 ## License
