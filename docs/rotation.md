@@ -97,7 +97,7 @@ docker run -d --name cert-rotator --restart unless-stopped \
   -e TRUST_ANCHOR_ARN=arn:aws:rolesanywhere:...:trust-anchor/... \
   -e PROFILE_ARN=arn:aws:rolesanywhere:...:profile/... \
   -e ROLE_ARN=arn:aws:iam::...:role/... \
-  ghcr.io/twitchcaptain/alexa-homeassistant/cert-rotator:latest
+  ghcr.io/golift/alexa-homeassistant/cert-rotator:latest
 ```
 
 The hostname in `CA_URL` must be one of the CA's configured DNS names (or an IP

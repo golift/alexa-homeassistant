@@ -21,8 +21,8 @@ IMPORTANT:&#xD;
   </Overview>
   <Category>Tools:Utilities Network:Management Security:</Category>
   <WebUI>https://[IP]:[PORT:9000]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/TwitchCaptain/alexa-homeassistant/main/unraid/step-ca.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/TwitchCaptain/alexa-homeassistant/main/unraid/img/step-ca.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/golift/alexa-homeassistant/main/unraid/step-ca.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/golift/alexa-homeassistant/main/unraid/img/step-ca.png</Icon>
   <ExtraParams>--hostname step-ca</ExtraParams>
   <Branch>
     <Tag>latest</Tag>
