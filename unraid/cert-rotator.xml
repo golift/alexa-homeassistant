@@ -1,13 +1,13 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>cert-rotator</Name>
-  <Repository>ghcr.io/twitchcaptain/alexa-homeassistant/cert-rotator:latest</Repository>
-  <Registry>https://github.com/TwitchCaptain/alexa-homeassistant/pkgs/container/alexa-homeassistant%2Fcert-rotator</Registry>
+  <Repository>ghcr.io/golift/alexa-homeassistant/cert-rotator:latest</Repository>
+  <Registry>https://github.com/golift/alexa-homeassistant/pkgs/container/alexa-homeassistant%2Fcert-rotator</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <Shell>bash</Shell>
-  <Support>https://github.com/TwitchCaptain/alexa-homeassistant/issues</Support>
-  <Project>https://github.com/TwitchCaptain/alexa-homeassistant</Project>
+  <Support>https://github.com/golift/alexa-homeassistant/issues</Support>
+  <Project>https://github.com/golift/alexa-homeassistant</Project>
   <Overview>
 Keeps the Alexa Smart Home mTLS client certificate alive.&#xD;
 &#xD;
@@ -23,8 +23,8 @@ BEFORE YOU START:&#xD;
 See docs/rotation.md in the project repository for the exact commands.
   </Overview>
   <Category>Tools:Utilities Security:</Category>
-  <TemplateURL>https://raw.githubusercontent.com/TwitchCaptain/alexa-homeassistant/main/unraid/cert-rotator.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/TwitchCaptain/alexa-homeassistant/main/unraid/img/step-ca.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/golift/alexa-homeassistant/main/unraid/cert-rotator.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/golift/alexa-homeassistant/main/unraid/img/step-ca.png</Icon>
   <Branch>
     <Tag>latest</Tag>
     <TagDescription>Latest build from the main branch</TagDescription>
