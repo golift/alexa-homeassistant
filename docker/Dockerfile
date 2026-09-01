@@ -14,7 +14,7 @@ ARG SIGNING_HELPER_VERSION=1.8.4
 
 FROM smallstep/step-cli:${STEP_CLI_VERSION} AS stepcli
 
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS fetch
+FROM --platform=$BUILDPLATFORM alpine:3.24 AS fetch
 ARG SIGNING_HELPER_VERSION
 ARG TARGETARCH
 RUN apk add --no-cache curl
