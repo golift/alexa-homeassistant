@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 #
 # cert-rotator: renews step-ca client certificates and publishes the Alexa
 # client certificate to an AWS SSM SecureString parameter.
@@ -8,13 +8,13 @@
 # Every stage below only copies binaries into the final image, so buildx can
 # produce arm64 images from an amd64 runner without emulation.
 
-ARG AWS_CLI_VERSION=2.36.19
-ARG STEP_CLI_VERSION=0.30.6
+ARG AWS_CLI_VERSION=2.36.19@sha256:7e78b80fc653b9f6bdacc54709458910374da3213e3a19abdaf395680831a5da
+ARG STEP_CLI_VERSION=0.30.6@sha256:474768dd54700088e9480210eaf2c25e3041ed1e8302c7cf211725381cec9f5e
 ARG SIGNING_HELPER_VERSION=1.8.4
 
 FROM smallstep/step-cli:${STEP_CLI_VERSION} AS stepcli
 
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS fetch
+FROM --platform=$BUILDPLATFORM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce AS fetch
 ARG SIGNING_HELPER_VERSION
 ARG TARGETARCH
 RUN apk add --no-cache curl
