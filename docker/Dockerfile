@@ -8,7 +8,7 @@
 # Every stage below only copies binaries into the final image, so buildx can
 # produce arm64 images from an amd64 runner without emulation.
 
-ARG AWS_CLI_VERSION=2.37.9@sha256:92de75724b6a746951f0e8b915d86bbccd7cb55aff96cd0cb4f7017272160780
+ARG AWS_CLI_VERSION=2.37.10@sha256:3dacc5db57c923c4223e949795f538ecf1f2212b2b7d5a028b47b97f91564c0d
 ARG STEP_CLI_VERSION=0.31.0@sha256:107e8497646c0e7c06cc5b6fd6fa13b5d2001909df6d7da3706b8541ed42bddf
 ARG SIGNING_HELPER_VERSION=1.8.4
 
